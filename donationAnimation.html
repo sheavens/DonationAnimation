@@ -1,0 +1,271 @@
+<!Doctype HTML5>
+<html lang = "en">
+<!-- <head> -->
+
+<meta charset="utf-8">
+
+<style>
+.SVG-background  {
+   background-color: AliceBlue;
+}
+
+path
+ {
+   fill: none;
+   stroke: #800c2c;
+   stroke-width: 6px;
+   shape-rendering: crispEdges;
+}
+
+.total text
+{
+   font-family: sans-serif;
+   font-size: 14px;
+   font-weight:bold;
+}
+</style>
+
+<div id="chart"></div>
+<script src="https://d3js.org/d3.v5.js"></script>
+  
+<!-- </head> -->
+
+<h2>   Donations animation </h2>
+
+<script>
+
+    "use strict";
+
+    function log(arg) {
+    document.writeln(arg);
+    }
+
+    const MAXSIZE = 10000000;
+    const MINSIZE = 10;
+    const NUMDONATIONS =10;
+    const FRAMERATE = 80;
+    const DELTA = 0.0001
+    const A = 0.005;
+    var t = 0;
+
+    // append an svg box
+
+    var margin = {top:10, right:10, bottom:30, left:30};
+    var width = 1000 - margin.right - margin.left;
+    var height = 800 - margin.top - margin.bottom;
+
+
+    var svg = d3.select("body").append("svg")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+      .attr("class", "SVG-background")
+    .append("g")
+      .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+
+    // set the scale, using an input value 0-1
+
+    // TODO ammend to cope with any size and number of donations..
+
+/*    var xScale = d3.scaleLinear()
+     .domain([0,Math.log10(MAXSIZE)])
+     .range([0,width]);*/
+
+     var xScale = d3.scaleLinear()
+      .domain([0,Math.log10(MAXSIZE)])
+      .range([0,width]);
+
+
+    var yScale = d3.scaleLinear()
+     .domain( [0,1])
+     .range([0, height]);
+
+    // create a random set of n donations
+    var donationData = [], logDonations =[], liveData = [];
+
+    var logDonations  = d3.range(NUMDONATIONS).map(function() {
+      return (Math.floor(Math.random() * Math.log10(MAXSIZE) + Math.log10(MINSIZE)));
+    });
+    var donations = logDonations.map(d => Math.pow(10, d));
+
+    /*var thresh = d3.range(Math.floor(Math.max(logDonations)*10));*/
+
+    var histogram = d3.histogram();
+    /*  .domain(xScale.domain())
+    .thresholds(xScale(thresh));*/
+
+    var bins = histogram(logDonations);
+    var bin, size, cr, cx, cy, dy;
+    var widths, binWidth;
+    widths = bins.map(b => b.x1 - b.x0); // not needed?
+    binWidth = bins[0].x1 - bins[0].x0;  
+
+
+    cr = binWidth/2;
+    logDonations.forEach(function(d,i) {
+      size = donations[i];  //not log scale
+
+      for (let j=0; j < bins.length; j++) {  
+        bin = undefined;
+        if (bins[j].includes(d)) {
+           bin = j;
+           break;
+        };
+      };
+
+
+      cx = (bin+1)*binWidth + binWidth/2;  
+
+    donationData.push({
+        size: size,
+        cr: cr,
+        cx: cx,
+        cy: cr/height,
+        dx: 0,
+        dy: DELTA,
+        bin: bin,
+        t: t
+      });
+    });
+
+    // draw "buckets", dimentions in screen coordinates.
+    var bucketPoints = [], lineGenerator, buckets, x=0, bh = Math.floor(height/3);
+
+    // log(width)
+
+    // log(width/(bins.length + 1))
+
+
+    for (let i=0; i < bins.length + 1; i++) {
+      bucketPoints.push([x,bh],[x,height]);
+      x = Math.floor((i+1)*width/(bins.length+1));  
+      bucketPoints.push([x,height],[x,bh]);
+    }
+
+    lineGenerator = d3.line();
+    buckets = lineGenerator(bucketPoints);
+
+    svg.append("g").append("path")
+        .datum(bucketPoints)
+        .attr('d',buckets)
+        .attr("class", "buckets");
+
+    
+       // Add the x Axis
+  svg.append("g")
+      .attr("transform", "translate(0," + height + ")")
+      .call(d3.axisBottom(xScale));
+
+  // text label for the x axis
+  svg.append("text")             
+      .attr("transform",
+            "translate(" + (width/2) + " ," + 
+                           (height + margin.bottom) + ")")
+      .style("text-anchor", "middle")
+      .text("Log10 Donations");
+
+
+    /*
+    Recursive function with timeout to add donationData to live data at [random] intervals,
+    so data will appear one piece at a time in animation.*/
+    var counter = -1;
+    loop();
+    function loop() {
+    counter+=1;
+    if (donationData[counter]) {
+      liveData.push(donationData[counter]);
+      var delay = Math.floor(Math.random()*3000+500);
+      d3.timeout(loop, delay)
+    }
+    }
+
+    //  Start animation to draw on screen and update the live data
+
+    setInterval(draw,FRAMERATE);  //ToDO cancel after all balls dropped (10 x max delay?)
+
+
+    function draw() {
+
+    // Display circle for each data point   
+      var circles = d3.select("g").selectAll("circle")
+        .data(liveData) // Join new data with old elements
+        .attr('cx', function(d) {  //update old elements positions
+          return xScale(d.cx);
+        })
+        .attr('cy', function (d) {
+          return yScale(d.cy);
+        })
+        .attr('fill', "green");  // test only to show update data
+
+    // Create new elements as needed, and add data to them 
+    //(fill, radius and opacity only entered for new circles, as they don't change)
+    circles.enter().append("circle")
+        .attr('cx', function(d) {  
+          return xScale(d.cx);
+        })
+        .attr('cy', function (d) {
+          return yScale(d.cy);
+        })
+        .attr("r", function(d) {
+          return xScale(d.cr)-4; //shave off 8 pixels from diameter so that balls are inside buckets
+        })        
+        .attr('fill', "silver")
+        .attr('opacity', 1);
+
+      update();
+    }
+
+    function lowestCy(i) {  // calculate the 
+        var stackHeight=0;
+        for (let k=i-1; k >= 0; k--) {  // for all balls below this one
+          if (liveData[k].bin === liveData[i].bin) { // ..in the same bin
+          stackHeight += 2*(xScale(liveData[k].cr)-4)/height// ..add up the diameters  TODO: get rid of magic number 4
+          }
+        } 
+        stackHeight += (xScale(liveData[i].cr)-4)/height // add the radius of this ball
+        return 1 - stackHeight;
+    }
+
+    var temp;
+    function update() {
+    // Update circle positions
+
+      for (let i=0; i<liveData.length; i++)  {
+
+        liveData[i].t += 1/FRAMERATE;
+        liveData[i].dy += A*liveData[i].t**2;
+        liveData[i].cy += liveData[i].dy
+
+        // check for collisions
+
+        // collision with floor or ball below
+        let base = lowestCy(i)
+        if (liveData[i].cy > base) {
+             liveData[i].cy = base;
+             liveData[i].dy = -1*liveData[i].dy;
+        } else {   
+        // collision with ceiling
+        if (liveData[i].cy < 0) { //yScale(liveData[i].cr)) {
+            liveData[i].cy = 0;
+            liveData[i].dy = -1*liveData[i].dy;
+         } else {
+          // collision with lower ball in same bin, travelling in opposite direction
+          for (let k=i-1; k >= 0; k--) {
+            if ((k !== i) && (liveData[k].bin === liveData[i].bin) && 
+              (liveData[k].dy < 0) && // lower ball rising; excludes overlapping balls at start 
+              ( (liveData[k].cy - liveData[i].cy) < (xScale(liveData[i].cr)/height + xScale(liveData[k].cr)/height) ) )  {
+                // for 1D elastic collision with same mass..velocities exchanged.
+                  temp = liveData[i].dy;
+                  liveData[i].dy = liveData[k].dy;
+                  liveData[k].dy = temp;  
+                  break; // only detect the first ball below this one, then break.           
+            }
+          }
+        }
+      }
+    }
+  }
+
+</script>
+</body>
+</html>
